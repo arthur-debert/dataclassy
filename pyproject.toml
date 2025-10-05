@@ -1,0 +1,129 @@
+[build-system]
+requires = ["poetry-core"]
+build-backend = "poetry.core.masonry.api"
+
+###############################################################################
+### poetry
+###############################################################################
+[tool.poetry]
+name = "dataclassy"
+version = "0.0.1"
+description = "Lightweight extensions of dataclasses."
+authors = ["Arthur Debert <arthur@debert.xyz>"]
+license = "MIT"
+readme = "README.md"
+homepage = "https://github.com/arthur-debert/dataclassy"
+repository = "https://github.com/arthur-debert/dataclassy"
+documentation = "https://github.com/arthur-debert/dataclassy"
+keywords = ["dataclass", "dataclasses", "python", "library", "utilities", "development"]
+classifiers = [
+    "Development Status :: 4 - Beta",
+    "Environment :: Console",
+    "Intended Audience :: Developers",
+    "License :: OSI Approved :: MIT License", 
+    "Operating System :: OS Independent",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.12",
+    "Programming Language :: Python :: 3.13",
+    "Topic :: Software Development :: Libraries :: Python Modules",
+    "Topic :: Text Processing :: Markup",
+    "Topic :: Utilities",
+]
+
+packages = [{ include = "dataclassy", from = "python/src" }]
+include = [
+    "LICENSE",
+    "README.md",
+    { path = "python/src/dataclassy/themes/*.yaml", format = ["sdist", "wheel"] }
+]
+
+
+
+
+###############################################################################
+### dependencies
+###############################################################################
+[tool.poetry.dependencies]
+python = ">=3.12,<4"
+poetry = "^2.0.0"
+# Scripts are now defined in [project.scripts] section
+ruamel-yaml = "^0.18.6"
+
+[tool.poetry.group.dev.dependencies]
+pytest = "^8.3.4"
+pytest-cov = "6.0.0"
+pytest-xdist = "3.6.1"
+python-dotenv = "1.0.1"
+setuptools = "75.3.0"
+six = "1.16.0"
+stack-data = "0.6.3"
+black = "^24.10.0"
+flake8 = "^7.1.1"
+isort = "^5.13.2"
+autoflake = "^2.3.1"
+autoflake8 = "^0.4.1"
+
+###############################################################################
+### black
+###############################################################################
+[tool.black]
+line-length = 80
+target-version = ['py312']
+include = '\.pyi?$'
+exclude = '''
+/(
+    \.git
+  | \.hg
+  | \.mypy_cache
+  | \.tox
+  | \.venv
+  | _build
+  | buck-out
+  | build
+  | dist
+)/
+'''
+
+
+###############################################################################
+### pytest
+###############################################################################
+[tool.pytest.ini_options]
+addopts = "-v -rN -q -m 'not slow'"
+testpaths = ["src/tests", ]
+pythonpath = ["/src"]
+python_files = ["test_*.py"]
+python_functions = ["test_", "it_", "and_", "but_", "they_"]
+markers = [
+]
+
+
+###############################################################################
+### virtualenv
+###############################################################################
+[tool.virtualenv]
+create = true
+in-project = true
+include = ["src", "src/tests"]
+
+###############################################################################
+### coverage
+###############################################################################
+[tool.coverage.run]
+source = ["src"]
+omit = [
+    "python/tests/*",
+    ]
+[tool.coverage.report]
+sort = "-Cover"
+exclude_lines = [
+    "annotation: no cover",
+    "def __repr__",
+    "raise AssertionError",
+    "raise NotImplementedError",
+]
+
+###############################################################################
+### poe tasks
+###############################################################################
+[tool.poe.tasks]

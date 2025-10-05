@@ -1,0 +1,13 @@
+#!/bin/bash
+
+# Test runner script that runs ALL tests including slow ones
+# This is used by CI and other scripts that need comprehensive testing
+set -euo pipefail
+
+# Change to project root
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+PROJECT_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
+cd "$PROJECT_ROOT"
+
+echo "Running all tests (including slow tests)..."
+poetry run pytest -m '' "$@" python/tests/

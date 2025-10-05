@@ -1,0 +1,74 @@
+#!/usr/bin/env bash
+
+# Script to clear all Python cache files and directories from the entire project
+# Removes __pycache__ directories and .pyc/.pyo files from PROJECT_ROOT
+# Excludes .venv and .git directories
+
+set -euo pipefail
+
+# Get the project root from environment variable or default to parent of scripts directory
+PROJECT_ROOT="${PROJECT_ROOT:-$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)}"
+
+echo "Python Cache Cleaner"
+echo "===================="
+echo "Project root: $PROJECT_ROOT"
+echo "Excluded directories: .venv, .git"
+echo
+
+# Count items before removal for reporting
+echo "Scanning for Python cache files..."
+
+pycache_count=$(find "$PROJECT_ROOT" -type d -name "__pycache__" \
+	-not -path "*/.venv/*" \
+	-not -path "*/.git/*" 2>/dev/null | wc -l)
+
+pyc_count=$(find "$PROJECT_ROOT" -name "*.pyc" -type f \
+	-not -path "*/.venv/*" \
+	-not -path "*/.git/*" 2>/dev/null | wc -l)
+
+pyo_count=$(find "$PROJECT_ROOT" -name "*.pyo" -type f \
+	-not -path "*/.venv/*" \
+	-not -path "*/.git/*" 2>/dev/null | wc -l)
+
+total_items=$((pycache_count + pyc_count + pyo_count))
+
+if [[ $total_items -eq 0 ]]; then
+	echo "No Python cache files found in project"
+	exit 0
+fi
+
+echo "Found:"
+[[ $pycache_count -gt 0 ]] && echo "  $pycache_count __pycache__ directories"
+[[ $pyc_count -gt 0 ]] && echo "  $pyc_count .pyc files"
+[[ $pyo_count -gt 0 ]] && echo "  $pyo_count .pyo files"
+echo
+
+# Remove __pycache__ directories
+if [[ $pycache_count -gt 0 ]]; then
+	echo "Removing __pycache__ directories..."
+	find "$PROJECT_ROOT" -type d -name "__pycache__" \
+		-not -path "*/.venv/*" \
+		-not -path "*/.git/*" \
+		-exec rm -rf {} + 2>/dev/null || true
+fi
+
+# Remove .pyc files
+if [[ $pyc_count -gt 0 ]]; then
+	echo "Removing .pyc files..."
+	find "$PROJECT_ROOT" -name "*.pyc" -type f \
+		-not -path "*/.venv/*" \
+		-not -path "*/.git/*" \
+		-delete 2>/dev/null || true
+fi
+
+# Remove .pyo files (optimized bytecode)
+if [[ $pyo_count -gt 0 ]]; then
+	echo "Removing .pyo files..."
+	find "$PROJECT_ROOT" -name "*.pyo" -type f \
+		-not -path "*/.venv/*" \
+		-not -path "*/.git/*" \
+		-delete 2>/dev/null || true
+fi
+
+echo
+echo "Python cache cleanup complete!"

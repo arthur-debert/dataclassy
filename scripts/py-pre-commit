@@ -1,0 +1,570 @@
+#!/bin/bash
+
+# Custom Pre-commit Hook
+# ======================
+#
+# This script exists because I could never get pre-commit to work like this.
+# The core idea is that automatable fixes should not display your flow nor
+# block commits, that is should be invisible to you. Hard non fixable checks
+# would of course block commits.
+#
+# Hence the gerneral idea is:
+# - You stage your changes
+# - You may have further changes unstaged.
+# - The veriy first thing then is to stash the unstaged changes..
+# -
+# - Phase I
+# - Then ir runs all automated fixes on the staged changeds, that's phase I
+# - When it finishes it stages the changes it made.
+# - By phase I ends you have: your changes + automated fixes, all staged.
+# -
+# - Phase II:
+# - Now it runs all hardd checks, that is , the ones where fails halt the ommit.
+# - If we passed, we commit and then unstash
+# - If we failed, we now lay the stashed changed on top of the staged changes, but the tricky thing here is therem might be conficlist
+# -
+#
+# This script implements a three-phase pre-commit workflow with robust state management:
+# 1. Phase I: Automated fixes (formatters, auto-fixable linters) + auto-staging
+# 2. Phase II: Hard checks (tests, strict linters)
+# 3. Phase III: Intelligent restore (handles Phase I/II interaction conflicts)
+#
+# Key Features:
+# - Poetry lock auto-regeneration when pyproject.toml changes
+# - Markdown linting with auto-fix (markdownlint --fix)
+# - Python formatting (black) and linting (ruff) with auto-fix
+# - Shell formatting (shfmt) and linting (shellcheck)
+# - Robust stash/restore that prevents losing staged changes on failures
+#
+# Usage:
+#   ./scripts/pre-commit                    # Run on staged changes only
+#   ./scripts/pre-commit --all-files        # Run on entire codebase
+#
+# Output behavior:
+#   Normal: Shows all output (milestones + tool details)
+#   Piped:  Terminal shows milestones, file gets everything
+
+set -euo pipefail
+
+# =============================================================================
+# CONFIGURATION AND SETUP
+# =============================================================================
+
+# Find project root - when run as git hook, we're already in project root
+# When run manually from scripts/, we need to go up one level
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+if [[ "$SCRIPT_DIR" == *".git/hooks" ]]; then
+	# Running as git hook - project root is current working directory
+	PROJECT_ROOT="$(pwd)"
+else
+	# Running manually from scripts/ - project root is parent directory
+	PROJECT_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
+fi
+
+# Parse command line arguments
+ALL_FILES=false
+if [[ "${1:-}" == "--all-files" ]]; then
+	ALL_FILES=true
+fi
+
+# Color codes for output
+RED='\033[0;31m'
+GREEN='\033[0;32m'
+YELLOW='\033[1;33m'
+BLUE='\033[0;34m'
+NC='\033[0m' # No Color
+
+# Exit codes
+EXIT_SUCCESS=0
+EXIT_FAILURE=1
+
+# Track overall status
+OVERALL_STATUS=$EXIT_SUCCESS
+PHASE_I_CHANGES=false
+STASH_CREATED=false
+
+# =============================================================================
+# UTILITY FUNCTIONS
+# =============================================================================
+
+# These log to stderr so they show on terminal even when stdout is piped
+log_info() {
+	echo -e "${BLUE}[INFO]${NC} $1" >&2
+}
+
+log_success() {
+	echo -e "${GREEN}[SUCCESS]${NC} $1" >&2
+}
+
+log_warning() {
+	echo -e "${YELLOW}[WARNING]${NC} $1" >&2
+}
+
+log_error() {
+	echo -e "${RED}[ERROR]${NC} $1" >&2
+}
+
+log_phase() {
+	echo -e "\n${BLUE}=== PHASE $1: $2 ===${NC}" >&2
+}
+
+# Check if we have any staged changes
+has_staged_changes() {
+	! git diff --cached --quiet
+}
+
+# Check if we have any unstaged changes
+has_unstaged_changes() {
+	! git diff --quiet
+}
+
+# Get staged files by extension
+get_staged_files() {
+	local extension="$1"
+	git diff --cached --name-only --diff-filter=ACM | grep "\\.$extension$" || true
+}
+
+# Get all files by extension (for --all-files mode)
+get_all_files() {
+	local extension="$1"
+	find python/ scripts/ -name "*.$extension" 2>/dev/null || true
+}
+
+# =============================================================================
+# PRE-WORK: STASH UNSTAGED CHANGES (ONLY for staged-only mode)
+# =============================================================================
+
+stash_unstaged_changes() {
+	if [[ "$ALL_FILES" == "true" ]]; then
+		log_info "Running on all files, no stashing needed"
+		return
+	fi
+
+	# Stash unstaged changes to create clean working directory for Phase I/II
+	# Uses --keep-index to preserve staged changes for processing
+	# This prevents unstaged changes from interfering with automated fixes
+	if has_unstaged_changes; then
+		log_info "Stashing unstaged changes to preserve clean working state"
+		git stash push -u -m "pre-commit-unstaged-$(date +%s)" --keep-index
+		STASH_CREATED=true
+		log_success "Unstaged changes stashed"
+	else
+		log_info "No unstaged changes to stash"
+	fi
+}
+
+# =============================================================================
+# PHASE I: AUTOMATED FIXES
+# =============================================================================
+
+run_phase_i() {
+	log_phase "I" "AUTOMATED FIXES"
+
+	local phase_i_status=$EXIT_SUCCESS
+
+	# Poetry check and auto-fix (if pyproject.toml changed or in --all-files mode)
+	# This ensures poetry.lock is always in sync with pyproject.toml changes
+	# Auto-generated lock file is staged automatically to include in commit
+	if [[ "$ALL_FILES" == "true" ]] || git diff --cached --name-only | grep -q "pyproject.toml"; then
+		log_info "Running poetry check..."
+		if ! poetry check >/dev/null 2>&1; then
+			log_info "Poetry check failed, regenerating lock file..."
+			if poetry lock; then
+				log_info "Poetry lock file regenerated successfully"
+				git add poetry.lock # Auto-stage regenerated lock file
+				PHASE_I_CHANGES=true
+				log_success "Updated poetry.lock staged for commit"
+			else
+				log_error "Failed to regenerate poetry lock file"
+				phase_i_status=$EXIT_FAILURE
+			fi
+		else
+			log_info "Poetry configuration is valid"
+		fi
+	fi
+
+	# Python: Black formatter
+	log_info "Running black (Python formatter)..."
+	if [[ "$ALL_FILES" == "true" ]]; then
+		local py_files
+		py_files=$(get_all_files "py")
+		if [[ -n "$py_files" ]]; then
+			if ! echo "$py_files" | xargs poetry run black --check --diff; then
+				log_info "Black would make changes, applying fixes..."
+				echo "$py_files" | xargs poetry run black
+				PHASE_I_CHANGES=true
+			fi
+		fi
+	else
+		local staged_py_files
+		staged_py_files=$(get_staged_files "py")
+		if [[ -n "$staged_py_files" ]]; then
+			if ! echo "$staged_py_files" | xargs poetry run black --check --diff; then
+				log_info "Black would make changes, applying fixes..."
+				echo "$staged_py_files" | xargs poetry run black
+				PHASE_I_CHANGES=true
+			fi
+		else
+			log_info "No staged Python files to format"
+		fi
+	fi
+
+	# Python: Ruff auto-fixable issues
+	log_info "Running ruff --fix (Python auto-fixes)..."
+	if [[ "$ALL_FILES" == "true" ]]; then
+		local py_files
+		py_files=$(get_all_files "py")
+		if [[ -n "$py_files" ]]; then
+			local ruff_output
+			ruff_output=$(echo "$py_files" | xargs poetry run ruff check --fix --unsafe-fixes 2>&1 || true)
+			if [[ "$ruff_output" != *"All checks passed!"* ]] && [[ -n "$ruff_output" ]]; then
+				PHASE_I_CHANGES=true
+			fi
+		fi
+	else
+		local staged_py_files
+		staged_py_files=$(get_staged_files "py")
+		if [[ -n "$staged_py_files" ]]; then
+			local ruff_output
+			ruff_output=$(echo "$staged_py_files" | xargs poetry run ruff check --fix --unsafe-fixes 2>&1 || true)
+			if [[ "$ruff_output" != *"All checks passed!"* ]] && [[ -n "$ruff_output" ]]; then
+				PHASE_I_CHANGES=true
+			fi
+		fi
+	fi
+
+	# Shell scripts: shfmt formatter
+	if command -v shfmt >/dev/null 2>&1; then
+		log_info "Running shfmt (Shell formatter)..."
+		if [[ "$ALL_FILES" == "true" ]]; then
+			local sh_files
+			sh_files=$(find scripts/ -name "*.sh" -o -type f -executable | head -20 || true)
+			if [[ -n "$sh_files" ]]; then
+				if ! echo "$sh_files" | xargs shfmt -d >/dev/null 2>&1; then
+					log_info "shfmt would make changes, applying fixes..."
+					echo "$sh_files" | xargs shfmt -w
+					PHASE_I_CHANGES=true
+				fi
+			fi
+		else
+			local staged_sh_files
+			staged_sh_files=$(git diff --cached --name-only --diff-filter=ACM | grep -E "\\.(sh|bash)$|^scripts/" || true)
+			if [[ -n "$staged_sh_files" ]]; then
+				if ! echo "$staged_sh_files" | xargs shfmt -d >/dev/null 2>&1; then
+					log_info "shfmt would make changes, applying fixes..."
+					echo "$staged_sh_files" | xargs shfmt -w
+					PHASE_I_CHANGES=true
+				fi
+			fi
+		fi
+	else
+		log_info "shfmt not available, skipping shell formatting"
+	fi
+
+	# Markdown: markdownlint with auto-fix
+	# Automatically fixes common markdown issues like trailing spaces, line breaks, etc.
+	# Uses --fix flag to apply corrections and stages the results
+	if command -v markdownlint >/dev/null 2>&1; then
+		log_info "Running markdownlint (Markdown linter and formatter)..."
+		if [[ "$ALL_FILES" == "true" ]]; then
+			local md_files
+			md_files=$(get_all_files "md")
+			if [[ -n "$md_files" ]]; then
+				# First check if markdownlint would make changes
+				local lint_output
+				lint_output=$(echo "$md_files" | xargs markdownlint 2>&1 || true)
+				if [[ -n "$lint_output" ]]; then
+					log_info "markdownlint found fixable issues, applying fixes..."
+					echo "$md_files" | xargs markdownlint --fix 2>/dev/null || true
+					PHASE_I_CHANGES=true
+				fi
+			fi
+		else
+			local staged_md_files
+			staged_md_files=$(get_staged_files "md")
+			if [[ -n "$staged_md_files" ]]; then
+				# First check if markdownlint would make changes
+				local lint_output
+				lint_output=$(echo "$staged_md_files" | xargs markdownlint 2>&1 || true)
+				if [[ -n "$lint_output" ]]; then
+					log_info "markdownlint found fixable issues, applying fixes..."
+					echo "$staged_md_files" | xargs markdownlint --fix 2>/dev/null || true
+					PHASE_I_CHANGES=true
+				fi
+			else
+				log_info "No staged Markdown files to lint"
+			fi
+		fi
+	else
+		log_info "markdownlint not available, skipping markdown formatting"
+	fi
+
+	# Stage any changes made by automated fixes
+	# Critical: This ensures all Phase I changes are included in the commit
+	# Strategy: Re-stage originally staged files + add auto-generated files
+	if [[ "$PHASE_I_CHANGES" == "true" ]]; then
+		log_info "Staging all changes made by automated fixes..."
+		if [[ "$ALL_FILES" == "true" ]]; then
+			# In --all-files mode, stage ALL changes (including previously unstaged ones)
+			git add -A
+			log_success "All changes from automated fixes have been staged"
+		else
+			# In staged-only mode, stage both:
+			# 1. Previously staged files that were modified by formatters
+			# 2. New files created by automated fixes (like poetry.lock)
+
+			# Get list of files that were staged before our changes
+			local originally_staged_files
+			originally_staged_files=$(git diff --cached --name-only)
+
+			# Stage updates to originally staged files
+			if [[ -n "$originally_staged_files" ]]; then
+				echo "$originally_staged_files" | xargs git add
+			fi
+
+			# Stage specific auto-generated files that should always be included
+			if [[ -f "poetry.lock" ]] && git diff --name-only poetry.lock >/dev/null 2>&1; then
+				git add poetry.lock
+			fi
+
+			log_success "Changes from automated fixes have been staged (original staged files + auto-generated files)"
+		fi
+	else
+		log_info "No automatic fixes needed"
+	fi
+
+	return $phase_i_status
+}
+
+# =============================================================================
+# PHASE II: HARD CHECKS
+# =============================================================================
+
+run_phase_ii() {
+	log_phase "II" "HARD CHECKS"
+
+	local phase_ii_status=$EXIT_SUCCESS
+
+	# Run tests first (most important check)
+	log_info "Running test suite..."
+	if ! poetry run pytest -m '' python/tests/; then
+		log_error "Test suite failed"
+		phase_ii_status=$EXIT_FAILURE
+	else
+		log_success "Test suite passed"
+	fi
+
+	# Python: Ruff linting (non-fixable issues)
+	log_info "Running ruff check (Python linter)..."
+	if [[ "$ALL_FILES" == "true" ]]; then
+		if ! poetry run ruff check python/ scripts/; then
+			log_error "Ruff found linting issues"
+			phase_ii_status=$EXIT_FAILURE
+		else
+			log_success "Ruff checks passed"
+		fi
+	else
+		local staged_py_files
+		staged_py_files=$(get_staged_files "py")
+		if [[ -n "$staged_py_files" ]]; then
+			if ! echo "$staged_py_files" | xargs poetry run ruff check; then
+				log_error "Ruff found linting issues in staged files"
+				phase_ii_status=$EXIT_FAILURE
+			else
+				log_success "Ruff checks passed for staged files"
+			fi
+		else
+			log_info "No staged Python files to lint"
+		fi
+	fi
+
+	# Shell scripts: ShellCheck
+	if command -v shellcheck >/dev/null 2>&1; then
+		log_info "Running shellcheck (Shell linter)..."
+		if [[ "$ALL_FILES" == "true" ]]; then
+			local sh_files
+			sh_files=$(find scripts/ -name "*.sh" -o -type f -executable | head -10 || true)
+			if [[ -n "$sh_files" ]]; then
+				if ! echo "$sh_files" | xargs shellcheck; then
+					log_warning "ShellCheck found issues (non-blocking)"
+				fi
+			fi
+		else
+			local staged_sh_files
+			staged_sh_files=$(git diff --cached --name-only --diff-filter=ACM | grep -E "\\.(sh|bash)$|^scripts/" || true)
+			if [[ -n "$staged_sh_files" ]]; then
+				if ! echo "$staged_sh_files" | xargs shellcheck; then
+					log_warning "ShellCheck found issues in staged files (non-blocking)"
+				fi
+			fi
+		fi
+	else
+		log_info "shellcheck not available, skipping shell linting"
+	fi
+
+	# Markdown: markdownlint final check (non-fixable issues)
+	if command -v markdownlint >/dev/null 2>&1; then
+		log_info "Running markdownlint final check (Markdown linter)..."
+		if [[ "$ALL_FILES" == "true" ]]; then
+			local md_files
+			md_files=$(get_all_files "md")
+			if [[ -n "$md_files" ]]; then
+				if ! echo "$md_files" | xargs markdownlint >/dev/null 2>&1; then
+					log_warning "markdownlint found remaining issues (after auto-fix)"
+				fi
+			fi
+		else
+			local staged_md_files
+			staged_md_files=$(get_staged_files "md")
+			if [[ -n "$staged_md_files" ]]; then
+				if ! echo "$staged_md_files" | xargs markdownlint >/dev/null 2>&1; then
+					log_warning "markdownlint found remaining issues in staged files (after auto-fix)"
+				fi
+			else
+				log_info "No staged Markdown files for final check"
+			fi
+		fi
+	else
+		log_info "markdownlint not available, skipping markdown final check"
+	fi
+
+	# Poetry check (final validation - warnings only)
+	if [[ "$ALL_FILES" == "true" ]] || git diff --cached --name-only | grep -q "pyproject.toml"; then
+		log_info "Running poetry check..."
+		if ! poetry check; then
+			log_warning "Poetry check shows warnings (but lock file was auto-fixed in Phase I)"
+		else
+			log_success "Poetry check passed"
+		fi
+	fi
+
+	return $phase_ii_status
+}
+
+# =============================================================================
+# PHASE III: RESTORE STASHED CHANGES (ONLY for staged-only mode)
+# =============================================================================
+
+restore_stashed_changes() {
+	log_phase "III" "RESTORE STASHED CHANGES"
+
+	if [[ "$ALL_FILES" == "true" ]]; then
+		log_info "Running in --all-files mode, no stashed changes to restore"
+		return
+	fi
+
+	# CRITICAL BUG FIX: Handle Phase I/II interaction conflicts
+	#
+	# THE PROBLEM: When Phase I modifies staged files (e.g., markdownlint --fix, black)
+	# and Phase II fails (e.g., test failure), restoring the stash creates conflicts:
+	# - Stash contains original version of files
+	# - Working directory has Phase I modified versions
+	# - git stash pop tries to merge, causing conflicts and losing user changes
+	#
+	# THE SOLUTION: Detect this scenario and restore original state carefully
+
+	if [[ "$OVERALL_STATUS" -ne 0 && "$PHASE_I_CHANGES" == "true" ]]; then
+		log_info "Phase II failed with Phase I changes - performing careful restore"
+
+		# Save current staged state (original user changes + Phase I auto-fixes)
+		local temp_patch="/tmp/pre-commit-current-staged-$$.patch"
+		git diff --cached >"$temp_patch"
+
+		# Reset to clean state (removes both original + Phase I changes)
+		git reset --quiet HEAD
+
+		# Restore stash (brings back original staged + unstaged changes)
+		if [[ "$STASH_CREATED" == "true" ]]; then
+			if git stash pop; then
+				log_success "Original state restored after Phase II failure"
+			else
+				log_warning "Could not restore stashed changes - applying temp patch"
+				# Fallback: restore at least something if stash fails
+				git apply --index "$temp_patch" 2>/dev/null || true
+			fi
+		fi
+
+		rm -f "$temp_patch"
+	else
+		# Normal path: Phase II succeeded or no Phase I changes to conflict
+		if [[ "$STASH_CREATED" == "true" ]]; then
+			log_info "Restoring previously stashed unstaged changes"
+			if git stash pop; then
+				log_success "Unstaged changes restored"
+			else
+				log_warning "Could not restore stashed changes - may have conflicts"
+				log_info "Use 'git stash list' and 'git stash pop' to resolve manually"
+			fi
+		else
+			log_info "No stashed changes to restore"
+		fi
+	fi
+}
+
+# =============================================================================
+# MAIN EXECUTION
+# =============================================================================
+
+main() {
+	log_info "Starting custom pre-commit hook"
+	log_info "Project root: $PROJECT_ROOT"
+	log_info "Mode: $([ "$ALL_FILES" == "true" ] && echo "all files" || echo "staged changes only")"
+
+	# Change to project root
+	cd "$PROJECT_ROOT"
+
+	# Check if we have anything to work with (only in staged-only mode)
+	if [[ "$ALL_FILES" == "false" ]] && ! has_staged_changes; then
+		log_info "No staged changes found, nothing to check"
+		exit $EXIT_SUCCESS
+	fi
+
+	# PRE-WORK: Stash unstaged changes (only in staged-only mode)
+	stash_unstaged_changes
+
+	# PHASE I: Automated fixes
+	run_phase_i
+
+	# PHASE II: Hard checks (run regardless of Phase I status)
+	# Tests, strict linting, and validation that must pass for commit to proceed
+	run_phase_ii
+	local phase_ii_result=$?
+
+	# Update overall status for restore logic
+	# CRITICAL: This status is used by restore_stashed_changes() to determine
+	# whether to use careful restoration (on failure) or normal restoration
+	if [[ $phase_ii_result -ne 0 ]]; then
+		OVERALL_STATUS=$EXIT_FAILURE
+	fi
+
+	# PHASE III: Restore stashed changes (only in staged-only mode)
+	# Uses intelligent restore logic that handles Phase I/II interaction conflicts
+	restore_stashed_changes
+
+	# Final status report
+	echo -e "\n${BLUE}=== FINAL RESULTS ===${NC}" >&2
+	if [[ $OVERALL_STATUS -eq 0 ]]; then
+		log_success "All checks passed! Commit can proceed."
+		if [[ "$PHASE_I_CHANGES" == "true" ]]; then
+			if [[ "$ALL_FILES" == "true" ]]; then
+				log_info "Note: Files were automatically fixed and all changes have been staged"
+			else
+				log_info "Note: Some files were automatically fixed and staged"
+			fi
+		fi
+	else
+		log_error "Some checks failed. Please fix the issues above before committing."
+		if [[ "$PHASE_I_CHANGES" == "true" ]]; then
+			if [[ "$ALL_FILES" == "true" ]]; then
+				log_info "Note: Files were automatically fixed and all changes have been staged, but other issues remain"
+			else
+				log_info "Note: Some files were automatically fixed and staged, but other issues remain"
+			fi
+		fi
+	fi
+
+	exit $OVERALL_STATUS
+}
+
+# Run main function
+main "$@"
