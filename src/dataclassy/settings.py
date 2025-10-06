@@ -3,7 +3,7 @@
 import os
 from dataclasses import fields, asdict
 from pathlib import Path
-from typing import Any, Dict, List, Optional, Type, TypeVar, Union, get_type_hints
+from typing import Any, Dict, List, Optional, Type, TypeVar, Union, Tuple, get_type_hints, get_origin, get_args
 from functools import wraps
 
 from .core import dataclassy
@@ -250,49 +250,17 @@ def settings(
             if include_defaults:
                 # Use FormatHandler with full object
                 if include_comments:
-                    # Add comments and save directly for JSON
-                    save_data = data.copy()
-                    save_data = _add_comments(self.__class__, save_data)
-                    
-                    path_obj = Path(path)
-                    ext = path_obj.suffix.lower()
-                    
-                    if ext == '.json':
-                        import json
-                        with open(path_obj, 'w') as f:
-                            json.dump(save_data, f, indent=kwargs.get('indent', 2))
-                    else:
-                        # For other formats, use FormatHandler without comments
-                        FormatHandler.to_path(self, path, **kwargs)
+                    # Save with format-aware comments
+                    _save_with_format_aware_comments(
+                        self.__class__, data, path, include_comments, **kwargs
+                    )
                 else:
                     FormatHandler.to_path(self, path, **kwargs)
             else:
                 # We have a reduced data set - save it directly
-                save_data = data.copy()
-                
-                if include_comments:
-                    save_data = _add_comments(self.__class__, save_data)
-                
-                # Write directly based on format
-                path_obj = Path(path)
-                ext = path_obj.suffix.lower()
-                
-                if ext == '.json':
-                    import json
-                    with open(path_obj, 'w') as f:
-                        json.dump(save_data, f, indent=kwargs.get('indent', 2))
-                elif ext == '.yaml' or ext == '.yml':
-                    try:
-                        import yaml
-                        with open(path_obj, 'w') as f:
-                            yaml.dump(save_data, f)
-                    except ImportError:
-                        raise ImportError("PyYAML required for YAML support")
-                else:
-                    # For other formats, we need a full object
-                    # Create temp object and use FormatHandler
-                    temp_obj = self.__class__(**data)
-                    FormatHandler.to_path(temp_obj, path, **kwargs)
+                _save_with_format_aware_comments(
+                    self.__class__, data, path, include_comments, **kwargs
+                )
         
         # Add methods to class
         cls.load_config = load_config
@@ -370,16 +338,7 @@ def _load_from_env(
             
             # Convert the string value to the appropriate type
             try:
-                if field_type == bool:
-                    # Special handling for booleans
-                    value = env_value.lower() in ('true', '1', 'yes', 'on')
-                elif field_type == int:
-                    value = int(env_value)
-                elif field_type == float:
-                    value = float(env_value)
-                else:
-                    value = env_value
-                    
+                value = _convert_env_value(env_value, field_type)
                 config[field_name] = value
             except (ValueError, TypeError):
                 # Skip values that can't be converted
@@ -388,25 +347,125 @@ def _load_from_env(
     return config
 
 
-def _add_comments(cls: Type, data: Dict[str, Any]) -> Dict[str, Any]:
+def _convert_env_value(value: str, target_type: Type) -> Any:
     """
-    Add comments from docstrings to the data.
+    Convert environment variable string to target type.
     
-    For JSON, adds _comment fields.
-    For other formats, this is handled by format-specific writers.
+    Handles:
+    - Basic types (bool, int, float, str)
+    - List types (comma-separated)
+    - Dict types (key=value pairs)
+    - Optional types
+    """
+    from typing import get_origin, get_args
+    
+    # Get origin for generic types
+    origin = get_origin(target_type)
+    
+    # Handle Optional types
+    if origin is Union:
+        args = get_args(target_type)
+        # Check if it's explicitly None/null
+        if value.lower() in ('none', 'null'):
+            return None
+        # Try each type in the union
+        for arg_type in args:
+            if arg_type is type(None):
+                continue
+            try:
+                return _convert_env_value(value, arg_type)
+            except:
+                continue
+        return value
+    
+    # Handle List types
+    if origin is list or target_type is list:
+        if not value.strip():
+            return []
+        
+        # Split by comma, strip whitespace
+        items = [item.strip() for item in value.split(',')]
+        
+        # If we have type args, convert each item
+        if origin is list:
+            args = get_args(target_type)
+            if args:
+                item_type = args[0]
+                items = [_convert_env_value(item, item_type) for item in items]
+        
+        return items
+    
+    # Handle Dict types
+    if origin is dict or target_type is dict:
+        if not value.strip():
+            return {}
+        
+        result = {}
+        # Support both JSON and key=value format
+        if value.startswith('{'):
+            # Try JSON format
+            try:
+                import json
+                return json.loads(value)
+            except:
+                pass
+        
+        # Parse key=value pairs
+        for pair in value.split(','):
+            if '=' in pair:
+                k, v = pair.split('=', 1)
+                k = k.strip()
+                v = v.strip()
+                
+                # If we have type args, convert the value
+                if origin is dict:
+                    args = get_args(target_type)
+                    if len(args) >= 2:
+                        key_type, val_type = args[0], args[1]
+                        k = _convert_env_value(k, key_type) if key_type != str else k
+                        v = _convert_env_value(v, val_type)
+                
+                result[k] = v
+        
+        return result
+    
+    # Handle None/null for basic types
+    if value.lower() in ('none', 'null', ''):
+        return None
+    
+    # Handle basic types
+    if target_type == bool:
+        return value.lower() in ('true', '1', 'yes', 'on', 'enabled')
+    elif target_type == int:
+        return int(value)
+    elif target_type == float:
+        return float(value)
+    elif target_type == str:
+        return value
+    else:
+        # For other types, try to call the type directly
+        try:
+            return target_type(value)
+        except:
+            return value
+
+
+def _extract_docstring_comments(cls: Type) -> Tuple[str, Dict[str, str]]:
+    """
+    Extract class and field documentation from docstrings.
     
     Args:
         cls: The settings class
-        data: The configuration data
         
     Returns:
-        Data with comments added
+        Tuple of (class_doc, field_docs)
     """
-    # Extract class docstring
+    class_doc = ""
+    field_docs = {}
+    
     if cls.__doc__:
         lines = cls.__doc__.strip().split('\n')
-        class_doc = []
-        field_docs = {}
+        class_lines = []
         current_field = None
         
         # Parse docstring to extract field documentation
@@ -423,22 +482,214 @@ def _add_comments(cls: Type, data: Dict[str, Any]) -> Dict[str, Any]:
                     field_docs[field_name] = []
                 else:
                     current_field = None
-                    class_doc.append(line)
+                    class_lines.append(line)
             elif current_field and line:
                 # This is documentation for the current field
                 field_docs[current_field].append(line)
             elif not current_field:
                 # This is part of the class documentation
-                class_doc.append(line)
+                class_lines.append(line)
         
-        # Add class comment
-        if class_doc:
-            data["_comment"] = '\n'.join(class_doc).strip()
+        # Join class documentation
+        if class_lines:
+            class_doc = '\n'.join(class_lines).strip()
         
-        # Add field comments
+        # Join field documentation
         for field_name, doc_lines in field_docs.items():
-            if field_name in data and doc_lines:
-                comment_key = f"_{field_name}_comment"
-                data[comment_key] = ' '.join(doc_lines).strip()
+            if doc_lines:
+                field_docs[field_name] = ' '.join(doc_lines).strip()
+    
+    return class_doc, field_docs
+
+
+def _add_comments(cls: Type, data: Dict[str, Any]) -> Dict[str, Any]:
+    """
+    Add comments from docstrings to the data (JSON format).
+    
+    This is kept for backward compatibility and JSON-specific handling.
+    """
+    class_doc, field_docs = _extract_docstring_comments(cls)
+    
+    if class_doc:
+        data["_comment"] = class_doc
+    
+    for field_name, doc in field_docs.items():
+        if field_name in data and doc:
+            data[f"_{field_name}_comment"] = doc
     
     return data
+
+
+def _save_with_format_aware_comments(
+    cls: Type,
+    data: Dict[str, Any],
+    path: Union[str, Path],
+    include_comments: bool,
+    **kwargs
+) -> None:
+    """
+    Save data with format-appropriate comment handling.
+    
+    Args:
+        cls: The class with docstrings
+        data: Data to save
+        path: File path
+        include_comments: Whether to include comments
+        **kwargs: Additional format-specific options
+    """
+    path_obj = Path(path)
+    ext = path_obj.suffix.lower()
+    
+    if not include_comments:
+        # No comments - use appropriate format handler
+        if ext == '.json':
+            import json
+            with open(path_obj, 'w') as f:
+                json.dump(data, f, indent=kwargs.get('indent', 2))
+        elif ext in ['.yaml', '.yml']:
+            try:
+                import yaml
+                with open(path_obj, 'w') as f:
+                    yaml.dump(data, f, default_flow_style=False,
+                            sort_keys=kwargs.get('sort_keys', False))
+            except ImportError:
+                raise ImportError("PyYAML required for YAML support")
+        elif ext == '.toml':
+            try:
+                import tomli_w
+                with open(path_obj, 'wb') as f:
+                    tomli_w.dump(data, f)
+            except ImportError:
+                raise ImportError("tomli-w required for TOML support")
+        elif ext == '.ini':
+            # For INI, we need special handling
+            import configparser
+            parser = configparser.ConfigParser()
+            for key, value in data.items():
+                parser.set('DEFAULT', key, str(value))
+            with open(path_obj, 'w') as f:
+                parser.write(f)
+        else:
+            raise ValueError(f"Unsupported format: {ext}")
+        return
+    
+    # Extract comments
+    class_doc, field_docs = _extract_docstring_comments(cls)
+    
+    if ext == '.json':
+        # For JSON, add comment fields to data
+        save_data = data.copy()
+        if class_doc:
+            save_data["_comment"] = class_doc
+        for field_name, doc in field_docs.items():
+            if field_name in save_data and doc:
+                save_data[f"_{field_name}_comment"] = doc
+        
+        import json
+        with open(path_obj, 'w') as f:
+            json.dump(save_data, f, indent=kwargs.get('indent', 2))
+    
+    elif ext in ['.yaml', '.yml']:
+        # For YAML, try to use ruamel.yaml for native comments
+        try:
+            from ruamel.yaml import YAML
+            from ruamel.yaml.comments import CommentedMap
+            
+            yaml = YAML()
+            yaml.preserve_quotes = True
+            yaml.default_flow_style = False
+            yaml.width = 4096
+            
+            # Create commented map
+            yaml_data = CommentedMap(data)
+            
+            # Add comments
+            if class_doc:
+                # Add as document-level comment
+                yaml_data.yaml_set_start_comment(class_doc)
+            
+            # Add field comments
+            for field_name, doc in field_docs.items():
+                if field_name in yaml_data and doc:
+                    yaml_data.yaml_set_comment_before_after_key(
+                        field_name, before=doc, indent=0
+                    )
+            
+            with open(path_obj, 'w') as f:
+                yaml.dump(yaml_data, f)
+                
+        except ImportError:
+            # Fallback to PyYAML with manual comment writing
+            try:
+                import yaml
+                with open(path_obj, 'w') as f:
+                    if class_doc:
+                        # Write class comment at the top
+                        for line in class_doc.split('\n'):
+                            f.write(f"# {line}\n")
+                        f.write("\n")
+                    
+                    # For field comments, we'd need to manually inject them
+                    # which is complex with PyYAML, so just dump normally
+                    yaml.dump(data, f, default_flow_style=False,
+                            sort_keys=kwargs.get('sort_keys', False))
+            except ImportError:
+                raise ImportError("PyYAML or ruamel.yaml required for YAML support")
+    
+    elif ext == '.toml':
+        # For TOML, try tomlkit for comment support
+        try:
+            import tomlkit
+            
+            doc = tomlkit.document()
+            
+            # Add class comment
+            if class_doc:
+                for line in class_doc.split('\n'):
+                    doc.add(tomlkit.comment(line))
+                doc.add(tomlkit.nl())
+            
+            # Add fields with comments
+            for key, value in data.items():
+                if key in field_docs and field_docs[key]:
+                    # Add field comment
+                    for line in field_docs[key].split('\n'):
+                        doc.add(tomlkit.comment(line))
+                doc.add(key, value)
+            
+            with open(path_obj, 'w') as f:
+                f.write(tomlkit.dumps(doc))
+                
+        except ImportError:
+            # Fallback to tomli-w without comments
+            try:
+                import tomli_w
+                with open(path_obj, 'wb') as f:
+                    tomli_w.dump(data, f)
+            except ImportError:
+                raise ImportError("tomlkit or tomli-w required for TOML support")
+    
+    elif ext == '.ini':
+        # For INI, write comments as actual comments
+        import configparser
+        
+        with open(path_obj, 'w') as f:
+            if class_doc:
+                for line in class_doc.split('\n'):
+                    f.write(f"# {line}\n")
+                f.write("\n")
+            
+            parser = configparser.ConfigParser()
+            
+            # Add fields
+            for key, value in data.items():
+                if key in field_docs and field_docs[key]:
+                    # Can't add inline comments with configparser
+                    # so we skip field comments for INI
+                    pass
+                parser.set('DEFAULT', key, str(value))
+            
+            parser.write(f)
+    
+    else:
+        raise ValueError(f"Unsupported format: {ext}")
