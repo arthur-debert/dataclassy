@@ -24,6 +24,7 @@ pip install dataclassy
 ```
 
 For additional format support:
+
 ```bash
 pip install dataclassy[yaml]  # For YAML support
 pip install dataclassy[toml]  # For TOML support
@@ -183,6 +184,7 @@ settings = Settings.load_config()
 ### Core Decorators
 
 #### `@dataclassy`
+
 Enhances a dataclass with serialization and type conversion.
 
 ```python
@@ -192,6 +194,7 @@ class MyClass:
 ```
 
 #### `@settings`
+
 Adds configuration management capabilities.
 
 ```python
@@ -208,6 +211,7 @@ class MyConfig:
 ### Field Types
 
 #### `Color`
+
 Validates and normalizes color values.
 
 ```python
@@ -217,6 +221,7 @@ color: Color = Color()  # Accepts hex, RGB, color names
 ```
 
 #### `Path`
+
 Validates file system paths with extensive options.
 
 ```python
@@ -319,4 +324,3 @@ This project is licensed under the MIT License - see the LICENSE file for detail
 - Built on Python's excellent `dataclasses` module
 - Inspired by `pydantic`, `attrs`, and `marshmallow`
 - Special thanks to the Python community
-
