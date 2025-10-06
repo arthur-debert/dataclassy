@@ -1,0 +1,80 @@
+name: Publish to PyPI
+
+on:
+  push:
+    tags:
+      - "v*.*.*" # Trigger on version tags like v1.0.0, v0.1.2, etc.
+
+permissions:
+  contents: write # Required for creating releases
+  id-token: write # For trusted publishing (optional, fallback to token auth)
+
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    environment:
+      name: pypi
+      url: https://pypi.org/p/${{ github.event.repository.name }}
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Setup Python with Poetry
+        uses: ./.github/actions/setup-python-poetry
+        with:
+          python-version: "3.13"
+          cache-key-prefix: "publish-env-v1"
+
+      - name: Extract version from tag
+        id: get_version
+        run: |
+          # Extract version from tag (remove 'v' prefix)
+          VERSION=${GITHUB_REF#refs/tags/v}
+          echo "version=$VERSION" >> $GITHUB_OUTPUT
+          echo "Extracted version: $VERSION"
+
+      - name: Update version in pyproject.toml
+        run: |
+          # Update version in pyproject.toml to match the tag
+          poetry version ${{ steps.get_version.outputs.version }}
+          echo "Updated pyproject.toml version to: ${{ steps.get_version.outputs.version }}"
+
+      - name: Build package
+        run: |
+          poetry build
+          echo "Built packages:"
+          ls -la dist/
+
+      - name: Run tests before publishing
+        run: |
+          poetry run pytest python/tests/ --no-cov -q
+          echo "All tests passed before publishing"
+
+      - name: Publish to PyPI
+        uses: pypa/gh-action-pypi-publish@release/v1
+        with:
+          password: ${{ secrets.PYPI_PASSWORD }}
+          verbose: true
+
+      - name: Create GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: v${{ steps.get_version.outputs.version }}
+          name: Release ${{ steps.get_version.outputs.version }}
+          body: |
+            ## ${{ github.event.repository.name }} ${{ steps.get_version.outputs.version }}
+
+            Released to PyPI: https://pypi.org/project/${{ github.event.repository.name }}/${{ steps.get_version.outputs.version }}/
+
+            Install with:
+            ```bash
+            pipx install ${{ github.event.repository.name }}==${{ steps.get_version.outputs.version }}
+            ```
+
+            Or upgrade:
+            ```bash
+            pipx upgrade ${{ github.event.repository.name }}
+            ```
+          draft: false
+          prerelease: false
