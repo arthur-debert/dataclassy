@@ -115,8 +115,8 @@ Advanced configuration management features.
 - [x] Add field-level documentation parsing
 - [x] Support multiline field descriptions
 - [x] Test comment generation
-- [ ] Add comment support for YAML (requires ruamel.yaml)
-- [ ] Add comment support for TOML
+- [x] Add comment support for YAML (with ruamel.yaml)
+- [x] Add comment support for TOML (with tomlkit)
 
 ### Phase 6: Click Integration 🔄 (Postponed)
 
@@ -218,6 +218,8 @@ Each phase is complete when:
 3. **File I/O** - Implemented FormatHandler with multi-format support
 4. **Path Field** - Improved parse_callback with better error handling
 5. **Unused Files** - Removed empty dataclassy.py file
+6. **Format-aware Comments** - Native comment support for YAML/TOML instead of JSON-only
+7. **Enhanced Env Vars** - Support for List and Dict types from environment variables
 
 ### Implementation Highlights
 
