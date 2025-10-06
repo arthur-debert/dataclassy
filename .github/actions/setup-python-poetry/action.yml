@@ -70,6 +70,7 @@ runs:
         # Ensure we have a clean, working environment
         poetry env use python
         poetry install --no-interaction --with dev
+        poetry install --no-interaction --all-extras
         # Verify installation worked
         poetry run python -c "import pytest; print('pytest installed successfully')"
 
