@@ -35,7 +35,7 @@ jobs:
 
       - name: Run tests
         run: |
-          poetry run pytest -m '' --cov-branch --cov-report=xml  --cov=${{ github.event.repository.name }} --junit-xml=test-results.xml python/tests/
+          poetry run pytest -m '' --cov-branch --cov-report=xml  --cov=${{ github.event.repository.name }} --junit-xml=test-results.xml src/tests/
 
       - name: Upload test results
         uses: actions/upload-artifact@v4
