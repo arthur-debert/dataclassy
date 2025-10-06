@@ -1,0 +1,78 @@
+name: Setup Python with Poetry
+description: "This action sets up Python with Poetry and installs dependencies"
+
+inputs:
+  python-version:
+    description: "The Python version to use"
+    required: false
+    default: "3.x"
+  cache-key-prefix:
+    description: "An optional prefix for the cache key"
+    required: false
+    default: ""
+
+runs:
+  using: composite
+  steps:
+    - name: Set up Python
+      uses: actions/setup-python@v5
+      with:
+        python-version: ${{ inputs.python-version }}
+
+    - name: Install Poetry
+      uses: snok/install-poetry@v1
+      with:
+        version: 2.0.1
+        virtualenvs-create: true
+        virtualenvs-in-project: true
+        installer-parallel: true
+
+    - name: Configure Poetry
+      shell: bash
+      run: |
+        # Clear any existing poetry configuration that might conflict
+        poetry config --list
+        poetry config virtualenvs.in-project true
+        # Remove any cached venv info that might point to wrong locations
+        poetry env remove --all || true
+        # Clean up any stale virtual environments
+        rm -rf .venv || true
+
+    - name: Cache dependencies
+      uses: actions/cache@v3
+      with:
+        path: ./.venv
+        key: ${{ inputs.cache-key-prefix }}-${{ runner.os }}-venv-${{
+          inputs.python-version }}-${{ hashFiles('**/poetry.lock', '**/pyproject.toml') }}
+        restore-keys: |
+          ${{ inputs.cache-key-prefix }}-${{ runner.os }}-venv-${{ inputs.python-version }}-
+
+    - name: Source env file and export to GitHub environment
+      shell: bash
+      run: |
+        # Source .envrc and export variables to GITHUB_ENV for persistence across steps
+        if [ -f .envrc ]; then
+          source .envrc
+          echo "PROJECT_ROOT=$PROJECT_ROOT" >> $GITHUB_ENV
+          echo "SRC_ROOT=$SRC_ROOT" >> $GITHUB_ENV
+          echo "TESTS_ROOT=$TESTS_ROOT" >> $GITHUB_ENV
+          echo "TXXT_CORPORA_ROOT=$TXXT_CORPORA_ROOT" >> $GITHUB_ENV
+          echo "TXXT_CORPORA_CLEAN_ROOT=$TXXT_CORPORA_CLEAN_ROOT" >> $GITHUB_ENV
+          echo "PYTHONPYCACHEPREFIX=$PYTHONPYCACHEPREFIX" >> $GITHUB_ENV
+          echo "Environment variables exported to GitHub Actions environment"
+        else
+          echo "Warning: .envrc file not found"
+        fi
+
+    - name: Install dependencies
+      shell: bash
+      run: |
+        # Ensure we have a clean, working environment
+        poetry env use python
+        poetry install --no-interaction --with dev
+        # Verify installation worked
+        poetry run python -c "import pytest; print('pytest installed successfully')"
+
+    - name: Sanity check
+      shell: bash
+      run: poetry check
