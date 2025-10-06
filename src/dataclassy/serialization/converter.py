@@ -165,7 +165,19 @@ class Converter:
             
             # Try to convert basic types
             try:
-                if target_type in (int, float, str, bool):
+                if target_type is bool:
+                    # Special handling for bool conversion from strings
+                    if isinstance(value, str):
+                        lower_val = value.lower()
+                        if lower_val in ('true', '1', 'yes', 'on'):
+                            return True
+                        elif lower_val in ('false', '0', 'no', 'off'):
+                            return False
+                        # For any other string, raise ValueError
+                        raise ValueError(f"Cannot convert '{value}' to bool")
+                    else:
+                        return bool(value)
+                elif target_type in (int, float, str):
                     return target_type(value)
             except (ValueError, TypeError):
                 pass

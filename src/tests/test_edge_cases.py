@@ -134,14 +134,18 @@ def test_from_dict_non_dict_inputs(data, should_pass):
 
 
 @pytest.mark.parametrize("field_type,input_value,expected_value,expected_type", [
-    # String to bool edge cases
+    # String to bool edge cases - now with proper conversion
     (bool, "true", True, bool),
-    (bool, "false", True, bool),  # Python bool("false") is True!
+    (bool, "false", False, bool),
     (bool, "True", True, bool),
-    (bool, "False", True, bool),  # Python bool("False") is True too!
+    (bool, "False", False, bool),
     (bool, "1", True, bool),
-    (bool, "0", True, bool),  # Python bool("0") is True!
-    (bool, "", False, bool),
+    (bool, "0", False, bool),
+    (bool, "yes", True, bool),
+    (bool, "no", False, bool),
+    (bool, "on", True, bool),
+    (bool, "off", False, bool),
+    (bool, "", "", str),  # Empty string can't convert to bool
     # Number edge cases
     (int, "123", 123, int),
     (int, 123.0, 123, int),  # Should convert float to int
