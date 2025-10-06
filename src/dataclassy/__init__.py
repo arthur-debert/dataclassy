@@ -4,7 +4,15 @@ Dataclassy: Enhanced dataclasses with validation, serialization, and configurati
 100% compatible with Python's built-in dataclasses module.
 """
 
-from dataclasses import field, fields, Field, MISSING, is_dataclass, asdict, astuple
+from dataclasses import (
+    field,
+    fields,
+    Field,
+    MISSING,
+    is_dataclass,
+    asdict,
+    astuple,
+)
 
 from .core import dataclassy
 from .fields import Color, Path
@@ -20,7 +28,7 @@ __all__ = [
     "Path",
     # Re-exported from dataclasses for convenience
     "field",
-    "fields", 
+    "fields",
     "Field",
     "MISSING",
     "is_dataclass",

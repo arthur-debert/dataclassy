@@ -3,6 +3,7 @@
 ## Motivation
 
 Python's `dataclasses` module revolutionized how we write data containers, but real-world applications often need more:
+
 - Converting between dictionaries and dataclasses for APIs and databases
 - Loading/saving configuration from files
 - Validating field values beyond type hints
@@ -22,7 +23,9 @@ Dataclassy addresses these needs while maintaining 100% compatibility with stand
 ## Design Principles
 
 ### 1. Decorator Composition
+
 Instead of reimplementing dataclass functionality, we wrap it:
+
 ```python
 def dataclassy(cls):
     # First apply standard dataclass
@@ -34,7 +37,9 @@ def dataclassy(cls):
 ```
 
 ### 2. Descriptor-based Validation
+
 Field validators are implemented as Python descriptors:
+
 ```python
 class Validator:
     def __set_name__(self, owner, name):
@@ -52,7 +57,9 @@ class Validator:
 ```
 
 ### 3. Type-Aware Serialization
+
 The serialization system uses type hints to guide conversion:
+
 ```python
 def from_dict(cls, data: dict):
     type_hints = get_type_hints(cls)
@@ -63,7 +70,9 @@ def from_dict(cls, data: dict):
 ```
 
 ### 4. Configuration Cascading
+
 Settings decorator implements a priority system:
+
 1. Default values in class definition
 2. Config files (in order specified)
 3. Environment variables
@@ -93,29 +102,34 @@ src/dataclassy/
 ### Key Components
 
 #### 1. Enhanced Dataclass Decorator
+
 - Wraps standard `@dataclass`
 - Adds serialization methods
 - Handles post-init validation
 - Manages enum conversions
 
 #### 2. Field Validation System
+
 - **Base Validator**: Abstract descriptor for custom fields
 - **Color Field**: Validates hex codes, RGB tuples, named colors
 - **Path Field**: File system validation with existence checks
 
 #### 3. Serialization Engine
+
 - **Type Introspection**: Uses `get_type_hints()` for accurate types
 - **Recursive Handling**: Nested dataclasses, lists, dicts
 - **Union Support**: Optional types, multiple valid types
 - **Custom Converters**: Enum string conversion, Path objects
 
 #### 4. Settings Management
+
 - **File Discovery**: Auto-finds config files by name
 - **Format Detection**: JSON, YAML, TOML, INI support
 - **Environment Variables**: Type-aware parsing with prefixes
 - **Deep Merging**: Intelligent config combination
 
 #### 5. Format Handlers
+
 - **Pluggable System**: Easy to add new formats
 - **Comment Preservation**: Format-specific comment handling
 - **Error Recovery**: Graceful handling of malformed files
@@ -155,16 +169,19 @@ The library performs type conversion at multiple levels:
 ## Testing Strategy
 
 ### Unit Tests
+
 - Each module has dedicated test file
 - Parametrized tests for edge cases
 - Mock external dependencies
 
 ### Integration Tests
+
 - Full workflow tests (create, save, load)
 - Multi-format round-trip tests
 - Environment variable integration
 
 ### Property Tests
+
 - Serialization round-trip properties
 - Type conversion consistency
 - Merge operation properties

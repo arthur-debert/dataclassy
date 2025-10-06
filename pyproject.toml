@@ -48,9 +48,9 @@ include = [
 python = ">=3.9,<4"
 
 [tool.poetry.extras]
-yaml = ["PyYAML"]
-toml = ["tomli", "tomli-w"]
-all = ["PyYAML", "tomli", "tomli-w"]
+yaml = ["PyYAML", "ruamel.yaml"]
+toml = ["tomli", "tomli-w", "tomlkit"]
+all = ["PyYAML", "ruamel.yaml", "tomli", "tomli-w", "tomlkit"]
 
 [tool.poetry.dependencies.PyYAML]
 version = "^6.0"
@@ -62,6 +62,14 @@ optional = true
 
 [tool.poetry.dependencies.tomli-w]
 version = "^1.0"
+optional = true
+
+[tool.poetry.dependencies."ruamel.yaml"]
+version = "^0.18"
+optional = true
+
+[tool.poetry.dependencies.tomlkit]
+version = "^0.12"
 optional = true
 
 [tool.poetry.group.dev.dependencies]

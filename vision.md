@@ -40,6 +40,7 @@ dataclassy/
 #### 1. The @dataclassy Decorator
 
 The main decorator is a thin wrapper around `@dataclass` that adds:
+
 - Automatic enum string conversion in `__post_init__`
 - Serialization methods: `from_dict()`, `to_dict()`, `from_path()`, `to_path()`
 - Support for custom field validators via descriptors
@@ -74,6 +75,7 @@ class Validator:
 ```
 
 Field types include:
+
 - **Color**: Accepts hex strings, RGB tuples, and named colors
 - **Path**: File system paths with validation, auto-loading, and format restrictions
 
@@ -96,6 +98,7 @@ The serialization system provides intelligent conversion between dictionaries an
 #### 4. @settings Decorator
 
 Enhanced decorator for configuration management:
+
 - Cascading configuration file loading
 - Environment variable override support
 - Deep merging of nested configurations
@@ -117,6 +120,7 @@ class AppConfig:
 #### 5. Click Integration
 
 Automatic CLI generation from dataclasses:
+
 - Fields become CLI options
 - Enums become choice parameters
 - Bool fields become flags
@@ -128,7 +132,8 @@ Automatic CLI generation from dataclasses:
 
 The final implementation closely followed the original vision with some notable enhancements and adjustments:
 
-#### Enhancements Beyond Original Plan:
+#### Enhancements Beyond Original Plan
+
 1. **Format-aware Comment System**: The implementation went beyond simple JSON comments to provide native comment support for YAML (via ruamel.yaml) and TOML (via tomlkit), making config files more readable and maintainable.
 
 2. **Advanced Environment Variable Coercion**: The env var system now supports complex types like List[str] and Dict[str, int], parsing comma-separated values and key=value pairs intelligently.
@@ -139,16 +144,18 @@ The final implementation closely followed the original vision with some notable 
 
 5. **Recursive Type Conversion**: The from_dict() method handles deeply nested structures with proper type conversion at all levels.
 
-#### Divergences from Original Plan:
+#### Divergences from Original Plan
+
 1. **Color Field API**: The original design implied color methods would be on the value itself (theme.primary.to_rgb()), but the implementation uses descriptors, requiring Theme.primary.to_rgb(theme).
 
-2. **Parsed Data Storage**: Path fields with parse_callback store data as _{field_name}_data instead of {field_name}_data to avoid conflicts.
+2. **Parsed Data Storage**: Path fields with parse_callback store data as_{field_name}_data instead of {field_name}_data to avoid conflicts.
 
 3. **Click Integration**: Postponed to a future release to focus on core functionality and ensure a solid foundation.
 
 4. **Import Strategy**: Uses explicit imports from dataclasses module rather than wrapping everything, ensuring better compatibility and clearer dependencies.
 
-#### Key Design Decisions Validated:
+#### Key Design Decisions Validated
+
 - 100% dataclass compatibility maintained throughout
 - Zero learning curve achieved - existing dataclass code just works
 - All features are opt-in with sensible defaults
@@ -158,26 +165,31 @@ The final implementation closely followed the original vision with some notable 
 ## Implementation Strategy
 
 ### Phase 1: Core Foundation
+
 1. Base `@dataclassy` decorator with dataclass wrapping
 2. Serialization mixin methods
 3. Basic enum conversion in `__post_init__`
 
 ### Phase 2: Field Types
+
 1. Base `Validator` descriptor class
 2. `Color` field implementation
 3. `Path` field implementation
 
 ### Phase 3: Serialization Engine
+
 1. Type-aware `from_dict()` converter
 2. Format handlers for JSON/YAML/TOML/INI
 3. Comment preservation system
 
 ### Phase 4: Advanced Features
+
 1. `@settings` decorator with config merging
 2. Environment variable loading
 3. Click integration utilities
 
 ### Phase 5: Testing & Polish
+
 1. Comprehensive test suite
 2. Type stub files for mypy
 3. Documentation and examples
@@ -187,14 +199,16 @@ The final implementation closely followed the original vision with some notable 
 ### Why Descriptors for Field Types?
 
 Descriptors provide the cleanest way to add validation without modifying dataclass internals:
+
 - Work with frozen dataclasses
 - Validate on every assignment, not just construction
 - Reusable across multiple dataclasses
 - No performance overhead for fields that don't need validation
 
-### Why Generate __init__ Instead of __post_init__?
+### Why Generate **init** Instead of **post_init**?
 
 We use `__post_init__` for conversions rather than generating a custom `__init__` because:
+
 - Maintains 100% dataclass compatibility
 - Preserves all dataclass features (fields, defaults, etc.)
 - Simpler implementation with less magic
@@ -203,6 +217,7 @@ We use `__post_init__` for conversions rather than generating a custom `__init__
 ### Handling Circular References
 
 The library explicitly does not handle circular references in serialization:
+
 - Matches standard `asdict()` behavior
 - Keeps implementation simple
 - Circular data structures are rare in configuration/data transfer use cases
@@ -269,6 +284,7 @@ cli = dataclass_command(AppConfig)
 ## Future Extensions
 
 Possible future enhancements that maintain the lightweight philosophy:
+
 - Additional field types (Email, URL, IPAddress)
 - Async file I/O support
 - Schema generation for OpenAPI/JSON Schema
