@@ -65,19 +65,22 @@ from dataclassy import dataclassy, Color, Path
 @dataclassy
 class Theme:
     name: str
-    primary: Color = "#3498db"  # Accepts hex, RGB tuples, or color names
+    primary: Color = Color()  # Accepts hex, RGB tuples, or color names
     logo: Path = Path(must_exist=True, extensions=[".png", ".jpg"])
 
 # Color field accepts multiple formats
 theme = Theme(name="Ocean", primary="navy", logo="./assets/logo.png")
 print(theme.primary)  # "#000080"
-print(theme.primary.to_rgb())  # (0, 0, 128)
+# Access color methods through the descriptor
+print(Theme.primary.to_rgb(theme))  # (0, 0, 128)
+print(Theme.primary.to_css(theme))  # "rgb(0, 0, 128)"
 ```
 
 ### Settings Management
 
 ```python
-from dataclassy import settings
+from dataclassy import settings, field
+from typing import List, Dict
 
 @settings(env_prefix="MYAPP_", config_name="config")
 class AppConfig:
@@ -90,16 +93,26 @@ class AppConfig:
         PostgreSQL connection string
     port : int
         Server port number
+    tags : List[str]
+        Feature tags (comma-separated in env vars)
+    limits : Dict[str, int]
+        Rate limits per endpoint
     """
     debug: bool = False
     database_url: str = "sqlite:///app.db"
     port: int = 8000
+    tags: List[str] = field(default_factory=list)
+    limits: Dict[str, int] = field(default_factory=dict)
 
 # Automatically loads from:
 # 1. config.json/yaml/toml in current directory
-# 2. Environment variables (MYAPP_DEBUG, MYAPP_DATABASE_URL, MYAPP_PORT)
+# 2. Environment variables with type conversion:
+#    - MYAPP_DEBUG=true
+#    - MYAPP_PORT=8080
+#    - MYAPP_TAGS=auth,api,v2  (becomes ["auth", "api", "v2"])
+#    - MYAPP_LIMITS=api=100,web=50  (becomes {"api": 100, "web": 50})
 # 3. Override with code
-config = AppConfig()  # Auto-loads if no args provided
+config = AppConfig()  # Auto-loads config files and env vars (when auto_load=True, the default)
 
 # Save with comments
 config.save_config("config.json", include_comments=True)
@@ -160,7 +173,7 @@ class ConfigFile:
 
 config = ConfigFile(path="./settings.json")
 # Automatically loads and parses the file
-print(config.path_data)  # Parsed JSON content
+print(config._path_data)  # Parsed JSON content (stored as _{field_name}_data)
 ```
 
 ### Configuration Cascading
@@ -217,7 +230,20 @@ Validates and normalizes color values.
 ```python
 from dataclassy import Color
 
-color: Color = Color()  # Accepts hex, RGB, color names
+class MyClass:
+    color: Color = Color()  # Accepts hex, RGB, color names
+    
+# Use in a dataclassy class
+@dataclassy
+class Theme:
+    primary: Color = Color()
+    
+# The Color field validates and converts values
+theme = Theme(primary="red")
+print(theme.primary)  # "#ff0000"
+# Access methods through the descriptor
+print(Theme.primary.to_rgb(theme))  # (255, 0, 0)
+print(Theme.primary.to_css(theme))  # "rgb(255, 0, 0)"
 ```
 
 #### `Path`
@@ -227,13 +253,26 @@ Validates file system paths with extensive options.
 ```python
 from dataclassy import Path
 
-path: Path = Path(
-    must_exist=False,       # Path must exist
-    is_file=None,          # Must be file (True), dir (False), or either (None)
-    extensions=None,       # Allowed file extensions
-    create_parents=False,  # Create parent directories
-    parse_callback=None,   # Function to parse file contents
-)
+@dataclassy
+class Config:
+    path: Path = Path(
+        must_exist=False,       # Path must exist
+        is_file=None,          # Must be file (True), dir (False), or either (None)
+        extensions=None,       # Allowed file extensions
+        create_parents=False,  # Create parent directories
+        parse_callback=None,   # Function to parse file contents
+    )
+
+# Path fields provide convenience methods
+config = Config(path="./config.json")
+# If parse_callback is set, parsed data is in _{field_name}_data
+if hasattr(config, '_path_data'):
+    print(config._path_data)
+    
+# Path fields also provide methods (via descriptor):
+# Config.path.read_text(config)
+# Config.path.write_text(config, content)
+# Config.path.read_bytes(config)
 ```
 
 ### Methods

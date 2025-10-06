@@ -1,242 +1,189 @@
-# Dataclassy Design Document
+# Dataclassy Technical Design Document
 
-## Overview
+## Motivation
 
-Dataclassy is a lightweight enhancement library for Python's dataclasses that maintains 100% compatibility while adding practical features for real-world data handling. The library follows a philosophy of zero learning curve - if you know dataclasses, you already know dataclassy.
+Python's `dataclasses` module revolutionized how we write data containers, but real-world applications often need more:
+- Converting between dictionaries and dataclasses for APIs and databases
+- Loading/saving configuration from files
+- Validating field values beyond type hints
+- Managing environment variables and config cascading
+- Preserving comments in configuration files
 
-## Core Design Principles
+Dataclassy addresses these needs while maintaining 100% compatibility with standard dataclasses.
 
-1. **100% Dataclass Compatible**: Every dataclassy is a valid dataclass that can be used anywhere a dataclass is expected
-2. **Zero Runtime Overhead**: Validation and conversion happen once at construction time via `__post_init__`
-3. **Type Safety**: Preserves all type hints and static analysis capabilities
-4. **Composable**: Features can be mixed and matched as needed
-5. **Fail Fast**: Invalid data raises clear exceptions at construction time
+## Goals
+
+1. **Zero Breaking Changes**: Any code using `@dataclass` should work identically with `@dataclassy`
+2. **Progressive Enhancement**: Features are opt-in, not forced
+3. **Type Safety**: Full type hint support with runtime validation
+4. **Minimal Dependencies**: Core has zero dependencies, formats are optional
+5. **Developer Experience**: Clear errors, intuitive APIs, good documentation
+
+## Design Principles
+
+### 1. Decorator Composition
+Instead of reimplementing dataclass functionality, we wrap it:
+```python
+def dataclassy(cls):
+    # First apply standard dataclass
+    cls = dataclass(cls)
+    # Then add our enhancements
+    cls.from_dict = classmethod(from_dict)
+    cls.to_dict = to_dict
+    return cls
+```
+
+### 2. Descriptor-based Validation
+Field validators are implemented as Python descriptors:
+```python
+class Validator:
+    def __set_name__(self, owner, name):
+        self.name = name
+        self._attr = f'_{name}'
+    
+    def __get__(self, instance, owner):
+        if instance is None:
+            return self
+        return getattr(instance, self._attr)
+    
+    def __set__(self, instance, value):
+        validated = self.validate(value)
+        setattr(instance, self._attr, validated)
+```
+
+### 3. Type-Aware Serialization
+The serialization system uses type hints to guide conversion:
+```python
+def from_dict(cls, data: dict):
+    type_hints = get_type_hints(cls)
+    for field_name, field_type in type_hints.items():
+        if is_dataclass(field_type):
+            # Recursive conversion
+            data[field_name] = field_type.from_dict(data[field_name])
+```
+
+### 4. Configuration Cascading
+Settings decorator implements a priority system:
+1. Default values in class definition
+2. Config files (in order specified)
+3. Environment variables
+4. Runtime overrides
 
 ## Architecture
 
-### Module Structure
+### Core Module Structure
 
 ```
-dataclassy/
+src/dataclassy/
 ├── __init__.py          # Public API exports
-├── core.py              # Main @dataclassy decorator
-├── fields/              # Field type library
-│   ├── __init__.py      
-│   ├── validators.py    # Base Validator descriptor
-│   ├── color.py         # Color field type
-│   └── path.py          # Path field type  
-├── serialization/       # Serialization functionality
-│   ├── __init__.py
-│   ├── converter.py     # Type-aware conversion engine
-│   └── formats.py       # File format handlers
+├── core.py              # @dataclassy decorator
 ├── settings.py          # @settings decorator
-├── integrations/
-│   └── click.py         # Click CLI integration
+├── fields/
+│   ├── __init__.py
+│   ├── validators.py    # Base Validator class
+│   ├── color.py         # Color field type
+│   └── path.py          # Path field type
+├── serialization/
+│   ├── __init__.py
+│   ├── converter.py     # to_dict/from_dict logic
+│   └── formats.py       # File format handlers
 └── utils.py             # Shared utilities
 ```
 
-### Core Components
+### Key Components
 
-#### 1. The @dataclassy Decorator
+#### 1. Enhanced Dataclass Decorator
+- Wraps standard `@dataclass`
+- Adds serialization methods
+- Handles post-init validation
+- Manages enum conversions
 
-The main decorator is a thin wrapper around `@dataclass` that adds:
-- Automatic enum string conversion in `__post_init__`
-- Serialization methods: `from_dict()`, `to_dict()`, `from_path()`, `to_path()`
-- Support for custom field validators via descriptors
+#### 2. Field Validation System
+- **Base Validator**: Abstract descriptor for custom fields
+- **Color Field**: Validates hex codes, RGB tuples, named colors
+- **Path Field**: File system validation with existence checks
 
-```python
-@dataclassy
-class Config:
-    host: str
-    port: int = 8080
-    log_level: LogLevel = LogLevel.INFO  # Enum - accepts strings too
-```
+#### 3. Serialization Engine
+- **Type Introspection**: Uses `get_type_hints()` for accurate types
+- **Recursive Handling**: Nested dataclasses, lists, dicts
+- **Union Support**: Optional types, multiple valid types
+- **Custom Converters**: Enum string conversion, Path objects
 
-#### 2. Field Type System
+#### 4. Settings Management
+- **File Discovery**: Auto-finds config files by name
+- **Format Detection**: JSON, YAML, TOML, INI support
+- **Environment Variables**: Type-aware parsing with prefixes
+- **Deep Merging**: Intelligent config combination
 
-Custom field types use Python's descriptor protocol for reusable validation:
+#### 5. Format Handlers
+- **Pluggable System**: Easy to add new formats
+- **Comment Preservation**: Format-specific comment handling
+- **Error Recovery**: Graceful handling of malformed files
 
-```python
-class Validator:
-    """Base validator using descriptor protocol"""
-    def __set_name__(self, owner, name):
-        self.private_name = '_' + name
-    
-    def __get__(self, obj, objtype=None):
-        if obj is None:
-            return self
-        return getattr(obj, self.private_name, None)
-    
-    def __set__(self, obj, value):
-        value = self.convert(value)  # Type conversion
-        self.validate(value)          # Validation
-        setattr(obj, self.private_name, value)
-```
+## Implementation Details
 
-Field types include:
-- **Color**: Accepts hex strings, RGB tuples, and named colors
-- **Path**: File system paths with validation, auto-loading, and format restrictions
+### Type Conversion Strategy
 
-#### 3. Serialization System
+The library performs type conversion at multiple levels:
 
-The serialization system provides intelligent conversion between dictionaries and dataclasses:
+1. **Field Assignment**: Validators convert on `__set__`
+2. **Dictionary Loading**: `from_dict` converts based on type hints
+3. **Environment Variables**: Smart parsing for complex types
+4. **File Loading**: Format-specific conversions
 
-- **from_dict()**: Recursively converts dictionaries to dataclasses with:
-  - Nested dataclass support
-  - Enum string matching (by value or name)
-  - Optional/Union type handling
-  - List[T] and Dict[K,V] with nested dataclasses
-  - Missing field handling via defaults
+### Error Handling Philosophy
 
-- **from_path()/to_path()**: File I/O with automatic format detection:
-  - JSON, YAML, TOML, INI support
-  - Comment preservation using docstrings
-  - Format auto-detection by file extension
+- **Fail Fast**: Invalid data raises immediately
+- **Clear Messages**: Errors indicate field name and expected type
+- **Type Safety**: No silent conversions that lose data
+- **Validation Errors**: Collected and reported together
 
-#### 4. @settings Decorator
+### Performance Considerations
 
-Enhanced decorator for configuration management:
-- Cascading configuration file loading
-- Environment variable override support
-- Deep merging of nested configurations
-- Docstring-based comment generation in output files
+1. **Lazy Loading**: Config files only read when needed
+2. **Cached Parsing**: Parsed config data stored once
+3. **Minimal Overhead**: Decorators add negligible runtime cost
+4. **Optional Features**: Unused features have zero cost
 
-```python
-@settings(env_prefix="APP_", config_paths=["default.yaml", "user.yaml"])
-@dataclassy
-class AppConfig:
-    """Application configuration"""
-    
-    host: str = "localhost"
-    """Server hostname"""
-    
-    port: int = 8080
-    """Server port number"""
-```
+### Extensibility Points
 
-#### 5. Click Integration
+1. **Custom Validators**: Subclass `Validator` for new field types
+2. **Format Handlers**: Register new file formats
+3. **Type Converters**: Add handlers for custom types
+4. **Merge Strategies**: Customize config merging behavior
 
-Automatic CLI generation from dataclasses:
-- Fields become CLI options
-- Enums become choice parameters
-- Bool fields become flags
-- Metadata provides help text
+## Testing Strategy
 
-## Implementation Strategy
+### Unit Tests
+- Each module has dedicated test file
+- Parametrized tests for edge cases
+- Mock external dependencies
 
-### Phase 1: Core Foundation
-1. Base `@dataclassy` decorator with dataclass wrapping
-2. Serialization mixin methods
-3. Basic enum conversion in `__post_init__`
+### Integration Tests
+- Full workflow tests (create, save, load)
+- Multi-format round-trip tests
+- Environment variable integration
 
-### Phase 2: Field Types
-1. Base `Validator` descriptor class
-2. `Color` field implementation
-3. `Path` field implementation
+### Property Tests
+- Serialization round-trip properties
+- Type conversion consistency
+- Merge operation properties
 
-### Phase 3: Serialization Engine
-1. Type-aware `from_dict()` converter
-2. Format handlers for JSON/YAML/TOML/INI
-3. Comment preservation system
+## Security Considerations
 
-### Phase 4: Advanced Features
-1. `@settings` decorator with config merging
-2. Environment variable loading
-3. Click integration utilities
+1. **Path Validation**: Prevents directory traversal
+2. **Environment Variables**: No automatic execution
+3. **File Parsing**: Safe parsing, no eval()
+4. **Type Safety**: Prevents injection via type confusion
 
-### Phase 5: Testing & Polish
-1. Comprehensive test suite
-2. Type stub files for mypy
-3. Documentation and examples
+## Future Enhancements
 
-## Technical Decisions
+1. **Schema Generation**: Export JSON Schema from dataclasses
+2. **Async Support**: Async file operations and validation
+3. **CLI Generation**: Convert dataclasses to Click commands
+4. **Performance Mode**: Optional caching and optimization
+5. **Plugin System**: Third-party validators and formats
 
-### Why Descriptors for Field Types?
+## Conclusion
 
-Descriptors provide the cleanest way to add validation without modifying dataclass internals:
-- Work with frozen dataclasses
-- Validate on every assignment, not just construction
-- Reusable across multiple dataclasses
-- No performance overhead for fields that don't need validation
-
-### Why Generate __init__ Instead of __post_init__?
-
-We use `__post_init__` for conversions rather than generating a custom `__init__` because:
-- Maintains 100% dataclass compatibility
-- Preserves all dataclass features (fields, defaults, etc.)
-- Simpler implementation with less magic
-- Clear separation of concerns
-
-### Handling Circular References
-
-The library explicitly does not handle circular references in serialization:
-- Matches standard `asdict()` behavior
-- Keeps implementation simple
-- Circular data structures are rare in configuration/data transfer use cases
-
-## Usage Examples
-
-### Basic Usage
-
-```python
-from dataclassy import dataclassy, Color, Path
-
-@dataclassy
-class Theme:
-    name: str
-    primary_color: Color = "#3498db"
-    icon_path: Path = Path("./icons", is_dir=True)
-
-# Create from dict with type conversion
-theme = Theme.from_dict({
-    "name": "Ocean",
-    "primary_color": "blue",  # Named color converted to hex
-    "icon_path": "./assets/icons"  # String converted to Path
-})
-
-# Save with comments
-theme.to_path("theme.yaml")
-```
-
-### Configuration Management
-
-```python
-@settings(env_prefix="MYAPP_")
-@dataclassy 
-class DatabaseConfig:
-    host: str = "localhost"
-    port: int = 5432
-    
-@settings(config_paths=["config/default.yaml", "config/local.yaml"])
-@dataclassy
-class AppConfig:
-    database: DatabaseConfig
-    debug: bool = False
-
-# Loads from files, then env vars, then kwargs
-config = AppConfig(debug=True)
-```
-
-### CLI Integration
-
-```python
-from dataclassy.integrations.click import dataclass_command
-
-cli = dataclass_command(AppConfig)
-# Automatically generates CLI with all options
-```
-
-## Performance Considerations
-
-1. **Construction Time**: All validation happens in `__post_init__`, adding minimal overhead
-2. **No Runtime Introspection**: Unlike some validation libraries, we don't inspect types at runtime
-3. **Descriptor Access**: Field types using descriptors have standard attribute access performance
-4. **Serialization**: `from_dict()` is optimized for common cases (primitives, dataclasses, enums)
-
-## Future Extensions
-
-Possible future enhancements that maintain the lightweight philosophy:
-- Additional field types (Email, URL, IPAddress)
-- Async file I/O support
-- Schema generation for OpenAPI/JSON Schema
-- Integration with other CLI libraries (Typer, Fire)
+Dataclassy achieves its goal of enhancing dataclasses without breaking compatibility. The architecture is modular, extensible, and maintains Python's philosophy of "there should be one obvious way to do it" while adding practical features for real-world applications.
