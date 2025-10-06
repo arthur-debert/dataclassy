@@ -313,8 +313,8 @@ class TestPathField:
             loader = ConfigLoader(str(json_file))
             
             # Check parsed data is stored
-            assert hasattr(loader, '_config_path_data')
-            assert loader._config_path_data == {"key": "value"}
+            assert hasattr(loader, 'config_path_data')
+            assert loader.config_path_data == {"key": "value"}
     
     def test_path_with_dataclassy_features(self):
         """Test Path field works with dataclassy features."""

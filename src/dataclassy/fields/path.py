@@ -29,7 +29,9 @@ class Path(Validator):
         resolve: bool = True,
         expanduser: bool = True,
         create_parents: bool = False,
-        parse_callback: Optional[Callable[[PathLib], Any]] = None
+        parse_callback: Optional[Callable[[PathLib], Any]] = None,
+        parsed_attr: Optional[str] = None,
+        raise_parse_errors: bool = False
     ):
         """
         Initialize Path validator.
@@ -43,6 +45,8 @@ class Path(Validator):
             expanduser: Whether to expand ~ to user home directory
             create_parents: Whether to create parent directories if they don't exist
             parse_callback: Optional callback to parse/load file contents
+            parsed_attr: Name of attribute to store parsed data (default: field_name + '_data')
+            raise_parse_errors: Whether to raise exceptions from parse_callback
         """
         super().__init__()
         self.must_exist = must_exist
@@ -53,6 +57,8 @@ class Path(Validator):
         self.expanduser = expanduser
         self.create_parents = create_parents
         self.parse_callback = parse_callback
+        self.parsed_attr = parsed_attr
+        self.raise_parse_errors = raise_parse_errors
         
         # Validate parameters
         if is_file and is_dir:
@@ -156,15 +162,26 @@ class Path(Validator):
         if self.parse_callback and value is not None:
             path = getattr(obj, self.private_name)
             if path and path.exists() and path.is_file():
+                # Determine the attribute name for parsed data
+                if self.parsed_attr:
+                    parsed_attr = self.parsed_attr
+                else:
+                    # Default: use the public field name + '_data'
+                    parsed_attr = self.public_name + '_data'
+                
                 try:
                     # Call the parse callback with the path
                     parsed_data = self.parse_callback(path)
-                    # Store the parsed data in a related attribute
-                    parsed_attr = self.private_name + '_data'
+                    # Store the parsed data
                     setattr(obj, parsed_attr, parsed_data)
-                except Exception:
-                    # Ignore parsing errors
-                    pass
+                except Exception as e:
+                    if self.raise_parse_errors:
+                        raise ValueError(
+                            f"Failed to parse {self.public_name}: {e}"
+                        ) from e
+                    else:
+                        # Store None if parsing fails and we're not raising
+                        setattr(obj, parsed_attr, None)
     
     def read_text(self, obj: Any, encoding: str = 'utf-8') -> Optional[str]:
         """
