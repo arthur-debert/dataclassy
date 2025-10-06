@@ -8,12 +8,14 @@ from dataclasses import field, fields, Field, MISSING, is_dataclass, asdict, ast
 
 from .core import dataclassy
 from .fields import Color, Path
+from .settings import settings
 
 __version__ = "0.0.1"
 
 __all__ = [
     # Our additions
     "dataclassy",
+    "settings",
     "Color",
     "Path",
     # Re-exported from dataclasses for convenience
