@@ -2,15 +2,20 @@
 
 ## Motivation
 
-Python's `dataclasses` module revolutionized how we write data containers, but real-world applications often need more:
+Python's `dataclasses` module simplified simple data in and out code, but, being a very baseline common ground, do not touch more complex needs. Python has a wealth of great libraries for this such as Pydantic Marshmallowj. These, although very capable, do require significanly more knowledge and investiments.
 
-- Converting between dictionaries and dataclasses for APIs and databases
-- Loading/saving configuration from files
+Dataclassy aims to extend the dataclass builtin just a bit, being very simple to use a learn, at the cost of reduced feature set. If your need falls between the std lib dataclass and the full blown data libraries, dataclassy might be for you.
+
+The main additions:
+
+- Much better serializatoin and deserialization from dictts:
+  - Nested dataclasses support
+  - Smarter type converrsoins (i.e. enum values)
+  - Automatic to/from major formats (jsom, yaml, toml, ini)
 - Validating field values beyond type hints
-- Managing environment variables and config cascading
-- Preserving comments in configuration files
-
-Dataclassy addresses these needs while maintaining 100% compatibility with standard dataclasses.
+- Settings related:
+  - Managing environment variables and config cascading
+  - Inserting doc stirngs as comments when serializing.
 
 ## Goals
 
