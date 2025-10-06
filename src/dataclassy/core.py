@@ -72,6 +72,13 @@ def dataclassy(
             if original_post_init:
                 original_post_init(self)
         
+        # Check for validator fields and prepare them
+        for name, attr in cls.__dict__.items():
+            if hasattr(attr, '__set_name__'):
+                # This is likely a descriptor, ensure __set_name__ is called
+                # (though Python should do this automatically)
+                pass
+        
         # Set __post_init__ BEFORE applying dataclass decorator
         if not slots:
             cls.__post_init__ = enhanced_post_init
