@@ -1,7 +1,6 @@
 """Tests for enhanced environment variable type coercion in settings."""
 
 import os
-import pytest
 from typing import List, Dict, Optional
 from tempfile import TemporaryDirectory
 from pathlib import Path

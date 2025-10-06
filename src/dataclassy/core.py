@@ -1,8 +1,7 @@
 """Core dataclassy decorator implementation."""
 
-from dataclasses import dataclass, fields, asdict, is_dataclass
+from dataclasses import dataclass, fields, asdict
 from enum import Enum
-from functools import wraps
 from typing import Any, Optional, Type, TypeVar, Union, get_type_hints
 
 from .utils import enum_converter

@@ -1,7 +1,6 @@
 """Tests for settings comment preservation with field-level documentation."""
 
 import json
-import pytest
 from pathlib import Path
 from tempfile import TemporaryDirectory
 

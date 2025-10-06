@@ -2,7 +2,7 @@
 
 import json
 from pathlib import Path
-from typing import Any, Dict, Union
+from typing import Any, Union
 
 from dataclasses import asdict
 

@@ -3,7 +3,6 @@
 import pytest
 from pathlib import Path as PathLib
 import tempfile
-import os
 
 from dataclassy import dataclassy, Color, Path
 

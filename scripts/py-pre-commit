@@ -124,10 +124,34 @@ get_staged_files() {
 	git diff --cached --name-only --diff-filter=ACM | grep "\\.$extension$" || true
 }
 
+# Determine which directories to search for Python files
+# If TESTS_ROOT is contained within SRC_ROOT, only use SRC_ROOT
+# Otherwise, use both SRC_ROOT and TESTS_ROOT
+get_python_search_dirs() {
+	local src_root="${SRC_ROOT:-src}"
+	local tests_root="${TESTS_ROOT:-tests}"
+
+	# Check if tests_root is contained within src_root
+	if [[ "$tests_root" == "$src_root"* ]]; then
+		echo "$src_root"
+	else
+		echo "$src_root $tests_root"
+	fi
+}
+
 # Get all files by extension (for --all-files mode)
 get_all_files() {
 	local extension="$1"
-	find python/ scripts/ -name "*.$extension" 2>/dev/null || true
+	local search_dirs
+
+	if [[ "$extension" == "py" ]]; then
+		# Use SRC_ROOT and TESTS_ROOT for Python files
+		search_dirs=$(get_python_search_dirs)
+		find ${search_dirs} scripts/ -name "*.$extension" 2>/dev/null || true
+	else
+		# For other file types, search in standard locations
+		find scripts/ -name "*.$extension" 2>/dev/null || true
+	fi
 }
 
 # =============================================================================
@@ -238,7 +262,7 @@ run_phase_i() {
 		log_info "Running shfmt (Shell formatter)..."
 		if [[ "$ALL_FILES" == "true" ]]; then
 			local sh_files
-			sh_files=$(find scripts/ -name "*.sh" -o -type f -executable | head -20 || true)
+			sh_files=$(find scripts/ \( -name "*.sh" -o -type f -executable \) | head -20 || true)
 			if [[ -n "$sh_files" ]]; then
 				if ! echo "$sh_files" | xargs shfmt -d >/dev/null 2>&1; then
 					log_info "shfmt would make changes, applying fixes..."
@@ -347,7 +371,8 @@ run_phase_ii() {
 
 	# Run tests first (most important check)
 	log_info "Running test suite..."
-	if ! poetry run pytest -m '' python/tests/; then
+	local tests_root="${TESTS_ROOT:-tests}"
+	if ! poetry run pytest -m '' "$tests_root/"; then
 		log_error "Test suite failed"
 		phase_ii_status=$EXIT_FAILURE
 	else
@@ -357,7 +382,9 @@ run_phase_ii() {
 	# Python: Ruff linting (non-fixable issues)
 	log_info "Running ruff check (Python linter)..."
 	if [[ "$ALL_FILES" == "true" ]]; then
-		if ! poetry run ruff check python/ scripts/; then
+		local search_dirs
+		search_dirs=$(get_python_search_dirs)
+		if ! poetry run ruff check ${search_dirs} scripts/; then
 			log_error "Ruff found linting issues"
 			phase_ii_status=$EXIT_FAILURE
 		else
@@ -383,7 +410,7 @@ run_phase_ii() {
 		log_info "Running shellcheck (Shell linter)..."
 		if [[ "$ALL_FILES" == "true" ]]; then
 			local sh_files
-			sh_files=$(find scripts/ -name "*.sh" -o -type f -executable | head -10 || true)
+			sh_files=$(find scripts/ \( -name "*.sh" -o -type f -executable \) | head -10 || true)
 			if [[ -n "$sh_files" ]]; then
 				if ! echo "$sh_files" | xargs shellcheck; then
 					log_warning "ShellCheck found issues (non-blocking)"

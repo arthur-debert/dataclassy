@@ -368,7 +368,6 @@ def _convert_env_value(value: str, target_type: Type) -> Any:
     - Dict types (key=value pairs)
     - Optional types
     """
-    from typing import get_origin, get_args
 
     # Get origin for generic types
     origin = get_origin(target_type)

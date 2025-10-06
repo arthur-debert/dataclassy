@@ -5,7 +5,7 @@ from enum import Enum
 from typing import List, Optional, Dict
 from dataclasses import field
 
-from dataclassy import dataclassy, asdict
+from dataclassy import dataclassy
 
 
 class Color(Enum):

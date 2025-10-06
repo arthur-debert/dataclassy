@@ -1,7 +1,7 @@
 """Color field type for dataclassy."""
 
 import re
-from typing import Any, Tuple, Union
+from typing import Any, Tuple
 
 from .validators import Validator
 

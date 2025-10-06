@@ -52,7 +52,7 @@ def test_json_comments_remain_as_fields():
 
 def test_yaml_comments_as_native():
     """Test that YAML files get native comments when ruamel.yaml is available."""
-    yaml = pytest.importorskip("ruamel.yaml")
+    pytest.importorskip("ruamel.yaml")
 
     @settings
     class Config:
@@ -96,7 +96,7 @@ def test_yaml_fallback_comments():
 
         value: int = 42
 
-    config = Config()
+    Config()
 
     with TemporaryDirectory() as tmpdir:
         yaml_path = Path(tmpdir) / "config_fallback.yaml"
@@ -117,7 +117,7 @@ def test_yaml_fallback_comments():
 
 def test_toml_comments_with_tomlkit():
     """Test that TOML files get proper comments when tomlkit is available."""
-    tomlkit = pytest.importorskip("tomlkit")
+    pytest.importorskip("tomlkit")
 
     @settings
     class Config:

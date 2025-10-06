@@ -1,6 +1,5 @@
 """Tests for file format handlers."""
 
-import json
 import pytest
 from pathlib import Path
 from tempfile import TemporaryDirectory
@@ -88,7 +87,7 @@ def test_json_formatting_options():
 
 def test_yaml_round_trip():
     """Test saving and loading YAML files."""
-    yaml = pytest.importorskip("yaml")
+    pytest.importorskip("yaml")
 
     config = SimpleConfig(name="test", value=42, enabled=True)
 
@@ -105,7 +104,7 @@ def test_yaml_round_trip():
 
 def test_toml_round_trip():
     """Test saving and loading TOML files."""
-    tomli_w = pytest.importorskip("tomli_w")
+    pytest.importorskip("tomli_w")
 
     config = SimpleConfig(name="test", value=42, enabled=False)
 

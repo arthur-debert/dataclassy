@@ -1,7 +1,7 @@
 """Path field type for dataclassy."""
 
 from pathlib import Path as PathLib
-from typing import Any, Callable, List, Optional, Union
+from typing import Any, Callable, List, Optional
 
 from .validators import Validator
 

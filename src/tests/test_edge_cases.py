@@ -3,9 +3,9 @@
 import pytest
 from enum import Enum
 from typing import List, Optional, Dict, Union
-from dataclasses import field, FrozenInstanceError
+from dataclasses import FrozenInstanceError
 
-from dataclassy import dataclassy, field as dc_field
+from dataclassy import dataclassy
 from dataclassy.utils import enum_converter, merge_configs, is_missing, MISSING
 
 
