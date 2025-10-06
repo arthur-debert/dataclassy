@@ -74,6 +74,16 @@ class Converter:
             
             # Convert the value based on its type
             converted_value = Converter._convert_value(field_value, field_type)
+            
+            # For basic types, if conversion returned the original value unchanged,
+            # it means the conversion failed
+            if field_type in (int, float, bool) and converted_value is field_value:
+                if not isinstance(field_value, field_type):
+                    raise TypeError(
+                        f"Field '{field_name}' expects {field_type.__name__} "
+                        f"but cannot convert value {field_value!r} of type {type(field_value).__name__}"
+                    )
+            
             init_kwargs[field_name] = converted_value
         
         return cls(**init_kwargs)
@@ -180,6 +190,7 @@ class Converter:
                 elif target_type in (int, float, str):
                     return target_type(value)
             except (ValueError, TypeError):
+                # Don't raise here, let the caller decide what to do
                 pass
         
         # Return value as-is if no conversion applied

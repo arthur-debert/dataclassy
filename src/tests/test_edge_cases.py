@@ -145,11 +145,11 @@ def test_from_dict_non_dict_inputs(data, should_pass):
     (bool, "no", False, bool),
     (bool, "on", True, bool),
     (bool, "off", False, bool),
-    (bool, "", "", str),  # Empty string can't convert to bool
+    # Empty string will raise TypeError, not included in parametrize
     # Number edge cases
     (int, "123", 123, int),
     (int, 123.0, 123, int),  # Should convert float to int
-    (int, "123.45", "123.45", str),  # Invalid conversion, returns as-is
+    # Invalid int conversion will raise TypeError, not included
     (float, "123.45", 123.45, float),
     (float, 123, 123.0, float),
     # String edge cases
@@ -320,17 +320,15 @@ def test_error_handling_in_conversion():
         value: int
         enum_field: Color
     
-    # Invalid int conversion - should keep as string
-    data1 = {"value": "not-a-number", "enum_field": "red"}
-    result1 = ErrorTest.from_dict(data1)
-    assert result1.value == "not-a-number"
-    assert result1.enum_field == Color.RED
+    # Valid enum conversion should work
+    data_valid = {"value": 42, "enum_field": "red"}
+    result = ErrorTest.from_dict(data_valid)
+    assert result.value == 42
+    assert result.enum_field == Color.RED
     
-    # Invalid enum conversion - should keep as string
-    data2 = {"value": 42, "enum_field": "invalid-color"}
-    result2 = ErrorTest.from_dict(data2)
-    assert result2.value == 42
-    assert result2.enum_field == "invalid-color"
+    # Invalid enum conversion at construction time should raise
+    with pytest.raises(ValueError, match="Invalid value for enum_field"):
+        ErrorTest(42, "invalid-color")
 
 
 def test_from_dict_with_extra_fields():
@@ -372,25 +370,24 @@ def test_frozen_with_enum_conversion(frozen):
 
 
 def test_complex_type_conversion_failures():
-    """Test that failed conversions don't crash but return original values."""
+    """Test that failed conversions raise appropriate errors."""
     @dataclassy
     class ComplexTypes:
         int_field: int
         float_field: float
         str_field: str
     
-    # Complex objects that can't be converted to int/float
+    # Complex objects that can't be converted to int/float should raise
     data = {
         "int_field": {"nested": "dict"},
         "float_field": ["list", "of", "items"],
         "str_field": {"another": "dict"}
     }
     
-    result = ComplexTypes.from_dict(data)
-    # Should keep original values when conversion fails
-    assert result.int_field == {"nested": "dict"}
-    assert result.float_field == ["list", "of", "items"]
-    assert result.str_field == "{'another': 'dict'}"  # str() of dict
+    with pytest.raises(TypeError) as exc_info:
+        ComplexTypes.from_dict(data)
+    assert "Field 'int_field' expects int" in str(exc_info.value)
+    assert "cannot convert value {'nested': 'dict'}" in str(exc_info.value)
 
 
 def test_inheritance_with_from_dict():

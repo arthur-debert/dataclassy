@@ -65,8 +65,10 @@ def dataclassy(
                             else:
                                 setattr(self, field.name, converted)
                         except ValueError as e:
-                            # Let the original value through if conversion fails
-                            pass
+                            # Raise a more informative error
+                            raise ValueError(
+                                f"Invalid value for {field.name}: {e}"
+                            ) from e
             
             # Call original __post_init__ if exists
             if original_post_init:

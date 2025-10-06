@@ -61,16 +61,18 @@ def test_bool_invalid_string():
     class Config:
         flag: bool
     
-    # Invalid string should not convert
+    # Invalid string should raise TypeError
     data = {"flag": "maybe"}
-    result = Config.from_dict(data)
-    # Should keep original value when conversion fails
-    assert result.flag == "maybe"
+    with pytest.raises(TypeError) as exc_info:
+        Config.from_dict(data)
+    assert "Field 'flag' expects bool" in str(exc_info.value)
+    assert "'maybe'" in str(exc_info.value)
     
-    # Empty string should also fail
+    # Empty string should also raise
     data2 = {"flag": ""}
-    result2 = Config.from_dict(data2)
-    assert result2.flag == ""
+    with pytest.raises(TypeError) as exc_info:
+        Config.from_dict(data2)
+    assert "Field 'flag' expects bool" in str(exc_info.value)
 
 
 def test_bool_non_string_conversion():
